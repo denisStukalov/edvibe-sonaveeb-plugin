@@ -17,6 +17,12 @@
 - Запрашивает первые 3 формы слова из `https://api.sonapi.ee/v2/<word>` и показывает их рядом с кнопкой.
 - Автоозвучка карточек блокируется, ручной клик по иконке динамика остается доступным.
 
+## Настройки
+
+Откройте страницу настроек расширения (`Details` → `Extension options`):
+- Положение блока: сверху, снизу или справа от карточки.
+- Отключение автоозвучки карточек (по умолчанию включено).
+
 ## Если слово не определяется
 
-В `src/content.js` обновите селекторы `TRAINING_BLOCK_SELECTOR`, `TRAINING_CARD_SELECTOR`, `ACTIVE_WORD_SELECTOR` под текущую верстку Edvibe.
+В `src/content.js` обновите селекторы `TRAINING_BLOCK_SELECTORS`, `TRAINING_CARD_SELECTORS`, `ACTIVE_WORD_SELECTORS` под текущую верстку Edvibe.

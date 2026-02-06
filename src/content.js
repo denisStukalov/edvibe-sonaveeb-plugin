@@ -24,6 +24,10 @@
   const ACTIVE_POLL_MS = 250;
   const DEBUG = false;
   const CONTENT_LOG_PREFIX = '[edvibe-content]';
+  const DEFAULT_SETTINGS = {
+    position: 'top',
+    disableAutoplay: true
+  };
   const OVERLAY_SELECTORS = [
     '[role="dialog"]',
     '.tir-modal',
@@ -42,6 +46,7 @@
   let lastDictionaryWord = '';
   let lastPathname = window.location.pathname;
   let suppressUntilTs = 0;
+  let currentSettings = { ...DEFAULT_SETTINGS };
 
   function normalizeWord(text) {
     if (!text) return '';
@@ -140,8 +145,27 @@
 
     const rect = card.getBoundingClientRect();
     const linkHeight = linkContainer.offsetHeight || 38;
-    const top = Math.max(8, rect.top - linkHeight - 14);
-    const left = rect.left + rect.width / 2;
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    const position = currentSettings.position;
+
+    let top;
+    let left;
+    if (position === 'bottom') {
+      top = rect.bottom + 14;
+      left = rect.left + rect.width / 2;
+    } else if (position === 'right') {
+      top = rect.top + rect.height / 2 - linkHeight / 2;
+      left = rect.right + 14;
+    } else {
+      top = rect.top - linkHeight - 14;
+      left = rect.left + rect.width / 2;
+    }
+
+    top = Math.min(Math.max(8, top), Math.max(8, viewportHeight - linkHeight - 8));
+    if (position === 'right') {
+      left = Math.min(Math.max(8, left), Math.max(8, viewportWidth - 340));
+    }
 
     linkContainer.style.top = `${top}px`;
     linkContainer.style.left = `${left}px`;
@@ -150,6 +174,37 @@
   function ensureLinkMounted(linkContainer) {
     if (linkContainer.parentElement !== document.body) {
       document.body.appendChild(linkContainer);
+    }
+  }
+
+  function getSettingsFromStorage() {
+    return new Promise((resolve) => {
+      chrome.storage.sync.get(DEFAULT_SETTINGS, (result) => {
+        if (chrome.runtime.lastError) {
+          resolve({ ...DEFAULT_SETTINGS });
+          return;
+        }
+        resolve({
+          position: result.position || DEFAULT_SETTINGS.position,
+          disableAutoplay: typeof result.disableAutoplay === 'boolean'
+            ? result.disableAutoplay
+            : DEFAULT_SETTINGS.disableAutoplay
+        });
+      });
+    });
+  }
+
+  function applySettings(settings, linkContainer) {
+    currentSettings = {
+      position: settings.position || DEFAULT_SETTINGS.position,
+      disableAutoplay: typeof settings.disableAutoplay === 'boolean'
+        ? settings.disableAutoplay
+        : DEFAULT_SETTINGS.disableAutoplay
+    };
+
+    document.documentElement.dataset.edvibeDisableAutoplay = currentSettings.disableAutoplay ? 'true' : 'false';
+    if (linkContainer) {
+      linkContainer.dataset.position = currentSettings.position;
     }
   }
 
@@ -341,14 +396,15 @@
     installWordAudioAutoplayBlocker();
 
     const refs = buildLink();
-    updateLink(refs);
+    applySettings(currentSettings, refs.linkContainer);
 
+    const update = () => updateLink(refs);
     const observer = new MutationObserver(() => {
       if (rafScheduled) return;
       rafScheduled = true;
       window.requestAnimationFrame(() => {
         rafScheduled = false;
-        updateLink(refs);
+        update();
       });
     });
 
@@ -358,19 +414,36 @@
       characterData: true
     });
 
-    window.addEventListener('resize', () => updateLink(refs));
-    window.addEventListener('scroll', () => updateLink(refs), { passive: true });
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, { passive: true });
     document.addEventListener('click', (event) => {
       if (isInterruptActionClick(event.target)) {
         suppressUntilTs = Date.now() + INTERRUPT_SUPPRESS_MS;
         hideLink(refs.linkContainer);
       }
-      updateLink(refs);
+      update();
     }, true);
-    document.addEventListener('keydown', () => updateLink(refs), true);
+    document.addEventListener('keydown', update, true);
     window.addEventListener('pagehide', () => hideLink(refs.linkContainer));
     window.addEventListener('beforeunload', () => hideLink(refs.linkContainer));
-    window.setInterval(() => updateLink(refs), ACTIVE_POLL_MS);
+    window.setInterval(update, ACTIVE_POLL_MS);
+
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'sync') return;
+      if (!changes.position && !changes.disableAutoplay) return;
+      applySettings({
+        position: changes.position ? changes.position.newValue : currentSettings.position,
+        disableAutoplay: changes.disableAutoplay
+          ? changes.disableAutoplay.newValue
+          : currentSettings.disableAutoplay
+      }, refs.linkContainer);
+      update();
+    });
+
+    getSettingsFromStorage().then((settings) => {
+      applySettings(settings, refs.linkContainer);
+      update();
+    });
   }
 
   if (document.readyState === 'loading') {

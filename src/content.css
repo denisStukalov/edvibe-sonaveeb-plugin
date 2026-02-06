@@ -10,6 +10,19 @@
   align-items: center;
 }
 
+#edvibe-sonaveeb-link-container[data-position="top"] {
+  transform: translateX(-50%);
+}
+
+#edvibe-sonaveeb-link-container[data-position="bottom"] {
+  transform: translateX(-50%);
+}
+
+#edvibe-sonaveeb-link-container[data-position="right"] {
+  transform: none;
+  align-items: flex-start;
+}
+
 #edvibe-sonaveeb-link-container[data-hidden="true"] {
   display: none;
 }
