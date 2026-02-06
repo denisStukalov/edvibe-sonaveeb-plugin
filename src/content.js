@@ -4,11 +4,24 @@
   const CONTAINER_ID = 'edvibe-sonaveeb-link-container';
   const FORMS_ID = 'edvibe-sonaveeb-forms';
 
-  const TRAINING_BLOCK_SELECTOR = '.form-training-view-word';
-  const TRAINING_CARD_SELECTOR = '.form-training-word-card';
-  const ACTIVE_WORD_SELECTOR = '.form-training-word-card_inner_scroll_text';
+  const TRAINING_BLOCK_SELECTORS = [
+    '.form-training-view-word',
+    '.form-training',
+    '.wrapper-add-words'
+  ];
+  const TRAINING_CARD_SELECTORS = [
+    '.form-training-word-card',
+    '.form-training-word-card_inner'
+  ];
+  const ACTIVE_WORD_SELECTORS = [
+    '.form-training-word-card_inner_scroll_text',
+    '.form-training-word-card_inner',
+    '.form-training-word-card [class*="inner_scroll_text"]',
+    '.form-training-word-card [class*="word"]'
+  ];
   const CYRILLIC_RE = /[\p{Script=Cyrillic}]/u;
   const AUDIO_BLOCKER_SCRIPT_ID = 'edvibe-audio-blocker-script';
+  const DEBUG = false;
   const CONTENT_LOG_PREFIX = '[edvibe-content]';
   const formsCache = new Map();
   const formsInFlight = new Set();
@@ -17,6 +30,7 @@
   let formsRequestSeq = 0;
   let rafScheduled = false;
   let lastDictionaryWord = '';
+  let lastPathname = window.location.pathname;
 
   function normalizeWord(text) {
     if (!text) return '';
@@ -25,6 +39,16 @@
       .replace(/[\n\r\t]+/g, ' ')
       .replace(/\s{2,}/g, ' ')
       .replace(/^[^\p{L}]+|[^\p{L}]+$/gu, '');
+  }
+
+  function debugLog(...args) {
+    if (!DEBUG) return;
+    console.debug(...args);
+  }
+
+  function debugError(...args) {
+    if (!DEBUG) return;
+    console.error(...args);
   }
 
   function isReasonableWord(word) {
@@ -41,21 +65,63 @@
     return style.display !== 'none' && style.visibility !== 'hidden';
   }
 
-  function findCurrentWord() {
-    const wordNode = document.querySelector(`${TRAINING_BLOCK_SELECTOR} ${ACTIVE_WORD_SELECTOR}`);
-    if (!wordNode || !isVisible(wordNode)) return '';
+  function findFirstVisibleElement(selectors, root = document) {
+    for (const selector of selectors) {
+      const nodes = root.querySelectorAll(selector);
+      for (const node of nodes) {
+        if (isVisible(node)) return node;
+      }
+    }
+    return null;
+  }
 
-    const word = normalizeWord(wordNode.textContent || '');
-    return isReasonableWord(word) ? word : '';
+  function getTrainingContext() {
+    for (const blockSelector of TRAINING_BLOCK_SELECTORS) {
+      const blocks = document.querySelectorAll(blockSelector);
+      for (const block of blocks) {
+        if (!isVisible(block)) continue;
+        if (!hasTrainingControls(block)) continue;
+        const card = findFirstVisibleElement(TRAINING_CARD_SELECTORS, block) || block;
+
+        if (!isVisible(card)) continue;
+        return { block, card };
+      }
+    }
+
+    return { block: null, card: null };
+  }
+
+  function hasTrainingControls(block) {
+    const buttons = block.querySelectorAll('button');
+    for (const button of buttons) {
+      const label = (button.textContent || '').toLowerCase();
+      if (label.includes('дальше') || label.includes('назад')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function findCurrentWord() {
+    const { card } = getTrainingContext();
+    if (!card) return '';
+
+    const wordNode = findFirstVisibleElement(ACTIVE_WORD_SELECTORS, card);
+    if (wordNode) {
+      const raw = normalizeWord(wordNode.textContent || '');
+      if (isReasonableWord(raw)) return raw;
+    }
+
+    return '';
   }
 
   function isTrainingVisible() {
-    const trainingBlock = document.querySelector(TRAINING_BLOCK_SELECTOR);
-    return Boolean(trainingBlock && isVisible(trainingBlock));
+    const { block, card } = getTrainingContext();
+    return Boolean(block && card && isVisible(block) && isVisible(card));
   }
 
   function positionLink(linkContainer) {
-    const card = document.querySelector(`${TRAINING_BLOCK_SELECTOR} ${TRAINING_CARD_SELECTOR}`);
+    const { card } = getTrainingContext();
     if (!card || !isVisible(card)) {
       linkContainer.dataset.hidden = 'true';
       return;
@@ -155,7 +221,7 @@
     const requestId = ++formsRequestSeq;
     formsInFlight.add(word);
     setFormsLoading(formsEl);
-    console.debug(`${CONTENT_LOG_PREFIX} forms request start`, { word, requestId });
+    debugLog(`${CONTENT_LOG_PREFIX} forms request start`, { word, requestId });
     let resolved = false;
     const timeoutId = window.setTimeout(() => {
       if (resolved || requestId !== formsRequestSeq) return;
@@ -173,7 +239,7 @@
       if (requestId !== formsRequestSeq) return;
       if (chrome.runtime.lastError) {
         formsFailedAt.set(word, Date.now());
-        console.error(`${CONTENT_LOG_PREFIX} runtime error`, {
+        debugError(`${CONTENT_LOG_PREFIX} runtime error`, {
           word,
           requestId,
           error: chrome.runtime.lastError.message
@@ -181,7 +247,7 @@
         setFormsFallback(formsEl, true);
         return;
       }
-      console.debug(`${CONTENT_LOG_PREFIX} forms response`, { word, requestId, response });
+      debugLog(`${CONTENT_LOG_PREFIX} forms response`, { word, requestId, response });
       if (!response || !response.ok || !Array.isArray(response.forms)) {
         formsFailedAt.set(word, Date.now());
         setFormsFallback(formsEl, true);
@@ -203,12 +269,17 @@
   function updateLink({ linkContainer, link, forms }) {
     ensureLinkMounted(linkContainer);
 
+    if (window.location.pathname !== lastPathname) {
+      lastPathname = window.location.pathname;
+      lastDictionaryWord = '';
+    }
+
     const detectedWord = findCurrentWord();
     if (isDictionarySourceWord(detectedWord)) {
       lastDictionaryWord = detectedWord;
     }
 
-    if (!lastDictionaryWord || !isTrainingVisible()) {
+    if (!detectedWord || !lastDictionaryWord || !isTrainingVisible()) {
       linkContainer.dataset.hidden = 'true';
       return;
     }
@@ -243,6 +314,7 @@
 
     window.addEventListener('resize', () => updateLink(refs));
     window.addEventListener('scroll', () => updateLink(refs), { passive: true });
+    window.setInterval(() => updateLink(refs), 700);
   }
 
   if (document.readyState === 'loading') {
