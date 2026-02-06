@@ -1,0 +1,43 @@
+#edvibe-sonaveeb-link-container {
+  position: fixed;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  pointer-events: none;
+}
+
+#edvibe-sonaveeb-link-container[data-hidden="true"] {
+  display: none;
+}
+
+#edvibe-sonaveeb-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: min(320px, 35vw);
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid #ccd9f4;
+  background: #edf3ff;
+  color: #465074;
+  font: 600 13px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-decoration: none;
+  box-shadow: none;
+  pointer-events: auto;
+}
+
+#edvibe-sonaveeb-link:hover {
+  background: #e4edff;
+}
+
+@media (max-width: 900px) {
+  #edvibe-sonaveeb-link-container {
+    max-width: calc(100vw - 24px);
+  }
+
+  #edvibe-sonaveeb-link {
+    max-width: calc(100vw - 24px);
+    font-size: 12px;
+  }
+}
