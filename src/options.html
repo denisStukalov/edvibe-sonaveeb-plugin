@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Edvibe Sonaveeb Link - Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main class="wrap">
+    <h1>Настройки Edvibe Sonaveeb Link</h1>
+
+    <section class="card">
+      <label for="position">Положение блока:</label>
+      <select id="position">
+        <option value="top">Сверху по центру</option>
+        <option value="bottom">Снизу по центру</option>
+        <option value="right">Справа от карточки</option>
+      </select>
+    </section>
+
+    <section class="card">
+      <label class="inline">
+        <input id="disableAutoplay" type="checkbox" />
+        Отключать автоозвучку карточек
+      </label>
+    </section>
+
+    <div class="actions">
+      <button id="save" type="button">Сохранить</button>
+      <span id="status" aria-live="polite"></span>
+    </div>
+  </main>
+
+  <script src="options.js"></script>
+</body>
+</html>
