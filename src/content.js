@@ -41,6 +41,7 @@
   const formsFailedAt = new Map();
   const FAILED_RETRY_MS = 60000;
   const INTERRUPT_SUPPRESS_MS = 2500;
+  const CARD_TRANSITION_SUPPRESS_MS = 15;
   let formsRequestSeq = 0;
   let rafScheduled = false;
   let lastDictionaryWord = '';
@@ -283,6 +284,14 @@
     return label.includes('прервать');
   }
 
+  function isCardNavigationClick(target) {
+    if (!(target instanceof Element)) return false;
+    const button = target.closest('button, [role="button"]');
+    if (!button) return false;
+    const label = (button.textContent || '').trim().toLowerCase();
+    return label.includes('дальше') || label.includes('назад');
+  }
+
   function requestWordForms(word, formsEl) {
     if (!word) {
       setFormsUI(formsEl, []);
@@ -380,7 +389,7 @@
       lastDictionaryWord = detectedWord;
     }
 
-    if (!detectedWord || !lastDictionaryWord || !isTrainingVisible()) {
+    if (!lastDictionaryWord || !isTrainingVisible()) {
       hideLink(linkContainer);
       return;
     }
@@ -419,6 +428,9 @@
     document.addEventListener('click', (event) => {
       if (isInterruptActionClick(event.target)) {
         suppressUntilTs = Date.now() + INTERRUPT_SUPPRESS_MS;
+        hideLink(refs.linkContainer);
+      } else if (isCardNavigationClick(event.target)) {
+        suppressUntilTs = Date.now() + CARD_TRANSITION_SUPPRESS_MS;
         hideLink(refs.linkContainer);
       }
       update();
