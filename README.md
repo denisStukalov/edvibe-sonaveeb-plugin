@@ -36,3 +36,13 @@
 ## Если слово не определяется
 
 В `src/content.js` обновите селекторы `TRAINING_BLOCK_SELECTORS`, `TRAINING_CARD_SELECTORS`, `ACTIVE_WORD_SELECTORS` под текущую верстку Edvibe.
+
+## Публикация в Chrome Web Store
+
+- Политика приватности: `PRIVACY_POLICY.md`
+- Чеклист подачи: `STORE_SUBMISSION.md`
+- Упаковка архива для загрузки:
+
+```bash
+./scripts/package-store.sh
+```

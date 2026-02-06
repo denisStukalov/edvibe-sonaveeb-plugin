@@ -3,9 +3,22 @@
   "name": "Edvibe Sonaveeb Link",
   "version": "0.1.0",
   "description": "Adds a quick Sonaveeb dictionary link for the current word on edvibe.com.",
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "32": "assets/icons/icon32.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
   "permissions": ["storage"],
   "host_permissions": ["https://api.sonapi.ee/*"],
   "options_page": "src/options.html",
+  "action": {
+    "default_title": "Edvibe Sonaveeb Link",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png"
+    }
+  },
   "background": {
     "service_worker": "src/background.js"
   },
