@@ -5,6 +5,9 @@
   transform: translateX(-50%);
   z-index: 2147483647;
   pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 #edvibe-sonaveeb-link-container[data-hidden="true"] {
@@ -36,6 +39,8 @@
   text-align: center;
   font: 500 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #6a7392;
+  width: max-content;
+  max-width: min(560px, 80vw);
 }
 
 #edvibe-sonaveeb-forms[data-hidden="true"] {
