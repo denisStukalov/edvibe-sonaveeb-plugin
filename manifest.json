@@ -3,6 +3,10 @@
   "name": "Edvibe Sonaveeb Link",
   "version": "0.1.0",
   "description": "Adds a quick Sonaveeb dictionary link for the current word on edvibe.com.",
+  "host_permissions": ["https://api.sonapi.ee/*"],
+  "background": {
+    "service_worker": "src/background.js"
+  },
   "content_scripts": [
     {
       "matches": ["https://edvibe.com/*", "https://www.edvibe.com/*"],

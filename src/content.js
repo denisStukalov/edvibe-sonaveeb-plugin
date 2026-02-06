@@ -2,12 +2,21 @@
   const DICT_URL = 'https://sonaveeb.ee/search/unif/dlall/dsall/';
   const LINK_ID = 'edvibe-sonaveeb-link';
   const CONTAINER_ID = 'edvibe-sonaveeb-link-container';
+  const FORMS_ID = 'edvibe-sonaveeb-forms';
 
   const TRAINING_BLOCK_SELECTOR = '.form-training-view-word';
   const TRAINING_CARD_SELECTOR = '.form-training-word-card';
   const ACTIVE_WORD_SELECTOR = '.form-training-word-card_inner_scroll_text';
   const CYRILLIC_RE = /[\p{Script=Cyrillic}]/u;
   const AUDIO_BLOCKER_SCRIPT_ID = 'edvibe-audio-blocker-script';
+  const CONTENT_LOG_PREFIX = '[edvibe-content]';
+  const formsCache = new Map();
+  const formsInFlight = new Set();
+  const formsFailedAt = new Map();
+  const FAILED_RETRY_MS = 60000;
+  let formsRequestSeq = 0;
+  let rafScheduled = false;
+  let lastDictionaryWord = '';
 
   function normalizeWord(text) {
     if (!text) return '';
@@ -77,8 +86,13 @@
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
 
+    const forms = document.createElement('div');
+    forms.id = FORMS_ID;
+    forms.dataset.hidden = 'true';
+
     linkContainer.appendChild(link);
-    return { linkContainer, link };
+    linkContainer.appendChild(forms);
+    return { linkContainer, link, forms };
   }
 
   function installWordAudioAutoplayBlocker() {
@@ -91,7 +105,102 @@
     (document.head || document.documentElement).appendChild(script);
   }
 
-  function updateLink({ linkContainer, link }) {
+  function setFormsUI(formsEl, forms) {
+    if (!Array.isArray(forms) || forms.length === 0) {
+      formsEl.dataset.hidden = 'true';
+      formsEl.textContent = '';
+      return;
+    }
+
+    formsEl.dataset.hidden = 'false';
+    formsEl.textContent = `Vormid: ${forms.join(' · ')}`;
+  }
+
+  function setFormsFallback(formsEl, withErrorHint = false) {
+    formsEl.dataset.hidden = 'false';
+    formsEl.textContent = withErrorHint ? 'Vormid: — (err)' : 'Vormid: —';
+  }
+
+  function setFormsLoading(formsEl) {
+    formsEl.dataset.hidden = 'false';
+    formsEl.textContent = 'Vormid: …';
+  }
+
+  function requestWordForms(word, formsEl) {
+    if (!word) {
+      setFormsUI(formsEl, []);
+      return;
+    }
+
+    if (formsCache.has(word)) {
+      const cachedForms = formsCache.get(word);
+      if (Array.isArray(cachedForms) && cachedForms.length > 0) {
+        setFormsUI(formsEl, cachedForms);
+      } else {
+        setFormsFallback(formsEl);
+      }
+      return;
+    }
+
+    const failedAt = formsFailedAt.get(word);
+    if (typeof failedAt === 'number' && Date.now() - failedAt < FAILED_RETRY_MS) {
+      setFormsFallback(formsEl, true);
+      return;
+    }
+
+    if (formsInFlight.has(word)) {
+      return;
+    }
+
+    const requestId = ++formsRequestSeq;
+    formsInFlight.add(word);
+    setFormsLoading(formsEl);
+    console.debug(`${CONTENT_LOG_PREFIX} forms request start`, { word, requestId });
+    let resolved = false;
+    const timeoutId = window.setTimeout(() => {
+      if (resolved || requestId !== formsRequestSeq) return;
+      resolved = true;
+      formsInFlight.delete(word);
+      formsFailedAt.set(word, Date.now());
+      setFormsFallback(formsEl);
+    }, 1300);
+
+    chrome.runtime.sendMessage({ type: 'getWordForms', word }, (response) => {
+      if (resolved) return;
+      resolved = true;
+      window.clearTimeout(timeoutId);
+      formsInFlight.delete(word);
+      if (requestId !== formsRequestSeq) return;
+      if (chrome.runtime.lastError) {
+        formsFailedAt.set(word, Date.now());
+        console.error(`${CONTENT_LOG_PREFIX} runtime error`, {
+          word,
+          requestId,
+          error: chrome.runtime.lastError.message
+        });
+        setFormsFallback(formsEl, true);
+        return;
+      }
+      console.debug(`${CONTENT_LOG_PREFIX} forms response`, { word, requestId, response });
+      if (!response || !response.ok || !Array.isArray(response.forms)) {
+        formsFailedAt.set(word, Date.now());
+        setFormsFallback(formsEl, true);
+        return;
+      }
+
+      const forms = response.forms.slice(0, 3);
+      formsFailedAt.delete(word);
+      if (forms.length === 0) {
+        formsCache.set(word, null);
+        setFormsFallback(formsEl);
+      } else {
+        formsCache.set(word, forms);
+        setFormsUI(formsEl, forms);
+      }
+    });
+  }
+
+  function updateLink({ linkContainer, link, forms }) {
     ensureLinkMounted(linkContainer);
 
     const detectedWord = findCurrentWord();
@@ -106,12 +215,10 @@
 
     link.textContent = `Открыть в Sõnaveeb: ${lastDictionaryWord}`;
     link.href = `${DICT_URL}${encodeURIComponent(lastDictionaryWord)}/1/est`;
+    requestWordForms(lastDictionaryWord, forms);
     linkContainer.dataset.hidden = 'false';
     positionLink(linkContainer);
   }
-
-  let rafScheduled = false;
-  let lastDictionaryWord = '';
 
   function init() {
     installWordAudioAutoplayBlocker();
