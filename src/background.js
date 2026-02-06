@@ -23,13 +23,49 @@ function pickFirstThreeValues(payload) {
     return [];
   }
 
+  const isVerb = Array.isArray(firstResult.wordClasses)
+    && firstResult.wordClasses.some((item) => String(item).toLowerCase() === 'verb');
+
+  if (isVerb) {
+    const base = (typeof payload.estonianWord === 'string' && payload.estonianWord.trim())
+      || (typeof payload.requestedWord === 'string' && payload.requestedWord.trim())
+      || '';
+
+    const byCode = new Map();
+    for (const item of firstResult.wordForms) {
+      const code = typeof item?.code === 'string' ? item.code.trim() : '';
+      const value = typeof item?.value === 'string' ? item.value.trim() : '';
+      if (!code || !value) continue;
+      if (!byCode.has(code)) byCode.set(code, value);
+    }
+
+    const forms = [];
+    const pushUnique = (value) => {
+      if (!value) return;
+      if (forms.includes(value)) return;
+      forms.push(value);
+    };
+
+    // 1) lemma/base
+    pushUnique(base);
+    // 2) da-infinitive
+    pushUnique(byCode.get('Inf'));
+    // 3) indicative present 1st person singular
+    pushUnique(byCode.get('IndPrSg1'));
+    // Optional fallback often used for -ma form if one of above is missing.
+    if (forms.length < 3) {
+      pushUnique(byCode.get('SupIps'));
+    }
+
+    return forms.slice(0, 3);
+  }
+
   const forms = [];
   for (const item of firstResult.wordForms.slice(0, 3)) {
     const value = typeof item?.value === 'string' ? item.value.trim() : '';
     if (!value) continue;
     forms.push(value);
   }
-
   return forms;
 }
 
