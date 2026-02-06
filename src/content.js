@@ -21,16 +21,27 @@
   ];
   const CYRILLIC_RE = /[\p{Script=Cyrillic}]/u;
   const AUDIO_BLOCKER_SCRIPT_ID = 'edvibe-audio-blocker-script';
+  const ACTIVE_POLL_MS = 250;
   const DEBUG = false;
   const CONTENT_LOG_PREFIX = '[edvibe-content]';
+  const OVERLAY_SELECTORS = [
+    '[role="dialog"]',
+    '.tir-modal',
+    '.modal',
+    '.ReactModal__Overlay',
+    '.swal2-container',
+    '.cdk-overlay-container'
+  ];
   const formsCache = new Map();
   const formsInFlight = new Set();
   const formsFailedAt = new Map();
   const FAILED_RETRY_MS = 60000;
+  const INTERRUPT_SUPPRESS_MS = 2500;
   let formsRequestSeq = 0;
   let rafScheduled = false;
   let lastDictionaryWord = '';
   let lastPathname = window.location.pathname;
+  let suppressUntilTs = 0;
 
   function normalizeWord(text) {
     if (!text) return '';
@@ -192,6 +203,31 @@
     formsEl.textContent = 'Vormid: …';
   }
 
+  function hideLink(linkContainer) {
+    linkContainer.dataset.hidden = 'true';
+  }
+
+  function isBlockingOverlayVisible() {
+    for (const selector of OVERLAY_SELECTORS) {
+      const nodes = document.querySelectorAll(selector);
+      for (const node of nodes) {
+        if (!(node instanceof HTMLElement)) continue;
+        if (node.id === CONTAINER_ID) continue;
+        if (!isVisible(node)) continue;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function isInterruptActionClick(target) {
+    if (!(target instanceof Element)) return false;
+    const button = target.closest('button, [role="button"]');
+    if (!button) return false;
+    const label = (button.textContent || '').trim().toLowerCase();
+    return label.includes('прервать');
+  }
+
   function requestWordForms(word, formsEl) {
     if (!word) {
       setFormsUI(formsEl, []);
@@ -210,7 +246,7 @@
 
     const failedAt = formsFailedAt.get(word);
     if (typeof failedAt === 'number' && Date.now() - failedAt < FAILED_RETRY_MS) {
-      setFormsFallback(formsEl, true);
+      setFormsFallback(formsEl);
       return;
     }
 
@@ -250,7 +286,7 @@
       debugLog(`${CONTENT_LOG_PREFIX} forms response`, { word, requestId, response });
       if (!response || !response.ok || !Array.isArray(response.forms)) {
         formsFailedAt.set(word, Date.now());
-        setFormsFallback(formsEl, true);
+        setFormsFallback(formsEl);
         return;
       }
 
@@ -269,9 +305,19 @@
   function updateLink({ linkContainer, link, forms }) {
     ensureLinkMounted(linkContainer);
 
+    if (Date.now() < suppressUntilTs) {
+      hideLink(linkContainer);
+      return;
+    }
+
     if (window.location.pathname !== lastPathname) {
       lastPathname = window.location.pathname;
       lastDictionaryWord = '';
+    }
+
+    if (isBlockingOverlayVisible()) {
+      hideLink(linkContainer);
+      return;
     }
 
     const detectedWord = findCurrentWord();
@@ -280,7 +326,7 @@
     }
 
     if (!detectedWord || !lastDictionaryWord || !isTrainingVisible()) {
-      linkContainer.dataset.hidden = 'true';
+      hideLink(linkContainer);
       return;
     }
 
@@ -314,7 +360,17 @@
 
     window.addEventListener('resize', () => updateLink(refs));
     window.addEventListener('scroll', () => updateLink(refs), { passive: true });
-    window.setInterval(() => updateLink(refs), 700);
+    document.addEventListener('click', (event) => {
+      if (isInterruptActionClick(event.target)) {
+        suppressUntilTs = Date.now() + INTERRUPT_SUPPRESS_MS;
+        hideLink(refs.linkContainer);
+      }
+      updateLink(refs);
+    }, true);
+    document.addEventListener('keydown', () => updateLink(refs), true);
+    window.addEventListener('pagehide', () => hideLink(refs.linkContainer));
+    window.addEventListener('beforeunload', () => hideLink(refs.linkContainer));
+    window.setInterval(() => updateLink(refs), ACTIVE_POLL_MS);
   }
 
   if (document.readyState === 'loading') {
