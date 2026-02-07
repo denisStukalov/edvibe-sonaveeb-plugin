@@ -1,2 +1,4 @@
 *.zip
+release/*.zip
+!release/.gitkeep
 .DS_Store
