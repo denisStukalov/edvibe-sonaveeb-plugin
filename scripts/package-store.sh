@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OUT="edvibe-sonaveeb-link.zip"
+OUT_DIR="release"
+OUT="${OUT_DIR}/edvibe-sonaveeb-link.zip"
 
+mkdir -p "$OUT_DIR"
 rm -f "$OUT"
 zip -r "$OUT" \
   manifest.json \

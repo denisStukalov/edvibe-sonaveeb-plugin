@@ -54,3 +54,25 @@
 ```bash
 ./scripts/package-store.sh
 ```
+
+Результат: `release/edvibe-sonaveeb-link.zip`
+
+## Релиз на GitHub (с красивым именем архива)
+
+1. Обновите версию в `manifest.json`.
+2. Соберите архив с версией в имени:
+
+```bash
+./scripts/package-release.sh
+```
+
+Пример результата: `release/edvibe-sonaveeb-link-v0.1.0.zip`
+
+3. Создайте git tag и push:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+4. В GitHub откройте `Releases` → `Draft a new release`, выберите тег и прикрепите файл `release/edvibe-sonaveeb-link-v0.1.0.zip`.
