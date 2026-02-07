@@ -21,13 +21,6 @@
 5. Выберите папку проекта (`edvibe-plugin`).
 6. Откройте Edvibe и обновите страницу.
 
-## Установка
-
-1. Откройте `chrome://extensions`.
-2. Включите `Developer mode`.
-3. Нажмите `Load unpacked`.
-4. Выберите папку проекта `edvibe-plugin`.
-
 ## Как это работает
 
 - Скрипт запускается на страницах `https://edvibe.com/*`.
@@ -64,7 +57,9 @@
 - `TRAINING_CARD_SELECTORS`
 - `ACTIVE_WORD_SELECTORS`
 
-## Публикация в Chrome Web Store
+## Для разработки и публикации
+
+### Публикация в Chrome Web Store
 
 - Политика приватности: `PRIVACY_POLICY.md`
 - Чеклист подачи: `STORE_SUBMISSION.md`
@@ -76,7 +71,7 @@
 
 Результат: `release/edvibe-sonaveeb-link.zip`
 
-## Релиз на GitHub (с красивым именем архива)
+### Релиз на GitHub (с красивым именем архива)
 
 1. Обновите версию в `manifest.json`.
 2. Соберите архив с версией в имени:
