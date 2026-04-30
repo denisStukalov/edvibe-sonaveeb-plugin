@@ -13,7 +13,7 @@ function debugError(...args) {
   console.error(...args);
 }
 
-function pickFirstThreeValues(payload) {
+function pickDisplayForms(payload) {
   if (!payload || !Array.isArray(payload.searchResult) || payload.searchResult.length === 0) {
     return [];
   }
@@ -60,12 +60,31 @@ function pickFirstThreeValues(payload) {
     return forms.slice(0, 3);
   }
 
-  const forms = [];
-  for (const item of firstResult.wordForms.slice(0, 3)) {
+  const byCode = new Map();
+  for (const item of firstResult.wordForms) {
+    const code = typeof item?.code === 'string' ? item.code.trim() : '';
     const value = typeof item?.value === 'string' ? item.value.trim() : '';
-    if (!value) continue;
-    forms.push(value);
+    if (!code || !value) continue;
+    if (!byCode.has(code)) byCode.set(code, value);
   }
+
+  const forms = [];
+  const pushUnique = (value) => {
+    if (!value) return;
+    if (forms.includes(value)) return;
+    forms.push(value);
+  };
+
+  for (const code of ['SgN', 'SgG', 'SgP', 'PlP']) {
+    pushUnique(byCode.get(code));
+  }
+
+  for (const item of firstResult.wordForms) {
+    if (forms.length >= 4) break;
+    const value = typeof item?.value === 'string' ? item.value.trim() : '';
+    pushUnique(value);
+  }
+
   return forms;
 }
 
@@ -101,7 +120,7 @@ async function fetchWordForms(word) {
     }
 
     const payload = await response.json();
-    const forms = pickFirstThreeValues(payload);
+    const forms = pickDisplayForms(payload);
     debugLog(`${BG_LOG_PREFIX} parsed forms`, { word, formsCount: forms.length, forms });
     return forms;
   } catch (error) {

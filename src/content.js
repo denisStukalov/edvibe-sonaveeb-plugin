@@ -354,7 +354,7 @@
         return;
       }
 
-      const forms = response.forms.slice(0, 3);
+      const forms = response.forms.slice(0, 4);
       formsFailedAt.delete(word);
       if (forms.length === 0) {
         formsCache.set(word, null);
