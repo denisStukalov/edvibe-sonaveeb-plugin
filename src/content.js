@@ -27,8 +27,10 @@
   const CONTENT_LOG_PREFIX = '[edvibe-content]';
   const DEFAULT_SETTINGS = {
     position: 'top',
-    disableAutoplay: true
+    disableAutoplay: true,
+    autoCopyExample: false
   };
+  const POSITION_VALUES = new Set(['top', 'bottom']);
   const OVERLAY_SELECTORS = [
     '[role="dialog"]',
     '.tir-modal',
@@ -52,6 +54,7 @@
   let currentSettings = { ...DEFAULT_SETTINGS };
   let extensionContextInvalidated = false;
   let activePollIntervalId = null;
+  let lastAutoCopiedExampleKey = '';
 
   function normalizeWord(text) {
     if (!text) return '';
@@ -104,6 +107,10 @@
 
   function isDictionarySourceWord(word) {
     return Boolean(word) && !CYRILLIC_RE.test(word);
+  }
+
+  function normalizePosition(value) {
+    return POSITION_VALUES.has(value) ? value : DEFAULT_SETTINGS.position;
   }
 
   function isVisible(el) {
@@ -176,7 +183,6 @@
 
     const rect = card.getBoundingClientRect();
     const linkHeight = linkContainer.offsetHeight || 38;
-    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
     const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
     const position = currentSettings.position;
 
@@ -185,18 +191,12 @@
     if (position === 'bottom') {
       top = rect.bottom + 14;
       left = rect.left + rect.width / 2;
-    } else if (position === 'right') {
-      top = rect.top + rect.height / 2 - linkHeight / 2;
-      left = rect.right + 14;
     } else {
       top = rect.top - linkHeight - 14;
       left = rect.left + rect.width / 2;
     }
 
     top = Math.min(Math.max(8, top), Math.max(8, viewportHeight - linkHeight - 8));
-    if (position === 'right') {
-      left = Math.min(Math.max(8, left), Math.max(8, viewportWidth - 340));
-    }
 
     linkContainer.style.top = `${top}px`;
     linkContainer.style.left = `${left}px`;
@@ -219,10 +219,13 @@
             return;
           }
           resolve({
-            position: result.position || DEFAULT_SETTINGS.position,
+            position: normalizePosition(result.position),
             disableAutoplay: typeof result.disableAutoplay === 'boolean'
               ? result.disableAutoplay
-              : DEFAULT_SETTINGS.disableAutoplay
+              : DEFAULT_SETTINGS.disableAutoplay,
+            autoCopyExample: typeof result.autoCopyExample === 'boolean'
+              ? result.autoCopyExample
+              : DEFAULT_SETTINGS.autoCopyExample
           });
         });
       } catch (error) {
@@ -237,10 +240,13 @@
 
   function applySettings(settings, linkContainer) {
     currentSettings = {
-      position: settings.position || DEFAULT_SETTINGS.position,
+      position: normalizePosition(settings.position),
       disableAutoplay: typeof settings.disableAutoplay === 'boolean'
         ? settings.disableAutoplay
-        : DEFAULT_SETTINGS.disableAutoplay
+        : DEFAULT_SETTINGS.disableAutoplay,
+      autoCopyExample: typeof settings.autoCopyExample === 'boolean'
+        ? settings.autoCopyExample
+        : DEFAULT_SETTINGS.autoCopyExample
     };
 
     document.documentElement.dataset.edvibeDisableAutoplay = currentSettings.disableAutoplay ? 'true' : 'false';
@@ -309,7 +315,43 @@
     formsEl.textContent = 'Vormid: …';
   }
 
-  function setDetailsUI(detailsEl, details) {
+  async function copyText(text) {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+
+    try {
+      document.execCommand('copy');
+    } finally {
+      textarea.remove();
+    }
+  }
+
+  function autoCopyExample(word, example) {
+    if (!currentSettings.autoCopyExample) return;
+    if (!example) return;
+    const key = `${word}\n${example}`;
+    if (key === lastAutoCopiedExampleKey) return;
+    lastAutoCopiedExampleKey = key;
+    copyText(example).catch((error) => {
+      debugError(`${CONTENT_LOG_PREFIX} example auto-copy failed`, {
+        word,
+        message: error?.message || String(error)
+      });
+    });
+  }
+
+  function setDetailsUI(detailsEl, details, word = '') {
     const rection = typeof details?.rection === 'string' ? details.rection.trim() : '';
     const example = typeof details?.example === 'string' ? details.example.trim() : '';
     detailsEl.textContent = '';
@@ -330,9 +372,13 @@
 
     if (example) {
       const exampleEl = document.createElement('div');
-      exampleEl.className = 'edvibe-sonaveeb-detail-line';
-      exampleEl.textContent = `Näide: ${example}`;
+      exampleEl.className = 'edvibe-sonaveeb-detail-line edvibe-sonaveeb-example-line';
+      const textEl = document.createElement('span');
+      textEl.className = 'edvibe-sonaveeb-example-text';
+      textEl.textContent = `Näide: ${example}`;
+      exampleEl.appendChild(textEl);
       detailsEl.appendChild(exampleEl);
+      autoCopyExample(word, example);
     }
   }
 
@@ -393,7 +439,7 @@
       const cachedDetails = wordDetailsCache.get(word);
       if (cachedDetails && Array.isArray(cachedDetails.forms) && cachedDetails.forms.length > 0) {
         setFormsUI(formsEl, cachedDetails.forms);
-        setDetailsUI(detailsEl, cachedDetails);
+        setDetailsUI(detailsEl, cachedDetails, word);
       } else {
         setFormsFallback(formsEl);
         hideDetails(detailsEl);
@@ -471,7 +517,7 @@
       } else {
         wordDetailsCache.set(word, details);
         setFormsUI(formsEl, forms);
-        setDetailsUI(detailsEl, details);
+        setDetailsUI(detailsEl, details, word);
       }
     };
 
@@ -553,6 +599,10 @@
     window.addEventListener('resize', update);
     window.addEventListener('scroll', update, { passive: true });
     document.addEventListener('click', (event) => {
+      if (event.target instanceof Node && refs.linkContainer.contains(event.target)) {
+        return;
+      }
+
       if (isInterruptActionClick(event.target)) {
         suppressUntilTs = Date.now() + INTERRUPT_SUPPRESS_MS;
         hideLink(refs.linkContainer);
@@ -570,12 +620,15 @@
     try {
       chrome.storage.onChanged.addListener((changes, areaName) => {
         if (areaName !== 'sync') return;
-        if (!changes.position && !changes.disableAutoplay) return;
+        if (!changes.position && !changes.disableAutoplay && !changes.autoCopyExample) return;
         applySettings({
           position: changes.position ? changes.position.newValue : currentSettings.position,
           disableAutoplay: changes.disableAutoplay
             ? changes.disableAutoplay.newValue
-            : currentSettings.disableAutoplay
+            : currentSettings.disableAutoplay,
+          autoCopyExample: changes.autoCopyExample
+            ? changes.autoCopyExample.newValue
+            : currentSettings.autoCopyExample
         }, refs.linkContainer);
         update();
       });

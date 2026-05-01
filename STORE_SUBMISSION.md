@@ -36,7 +36,8 @@ Use these as draft values:
 
 ## 6. Permissions explanation (store form)
 
-- `storage`: saves user settings locally (block position and autoplay toggle).
+- `storage`: saves user settings locally (block position, autoplay toggle, and optional example auto-copy toggle).
+- `clipboardWrite`: copies example sentences to the clipboard only when the user enables this setting.
 - Host access `api.sonapi.ee`: fetches word forms for current word.
 
 ## 7. Publish flow

@@ -1,7 +1,13 @@
 const DEFAULT_SETTINGS = {
   position: 'top',
-  disableAutoplay: true
+  disableAutoplay: true,
+  autoCopyExample: false
 };
+const POSITION_VALUES = new Set(['top', 'bottom']);
+
+function normalizePosition(value) {
+  return POSITION_VALUES.has(value) ? value : DEFAULT_SETTINGS.position;
+}
 
 function getSettings() {
   return new Promise((resolve, reject) => {
@@ -12,10 +18,13 @@ function getSettings() {
       }
 
       resolve({
-        position: result.position || DEFAULT_SETTINGS.position,
+        position: normalizePosition(result.position),
         disableAutoplay: typeof result.disableAutoplay === 'boolean'
           ? result.disableAutoplay
-          : DEFAULT_SETTINGS.disableAutoplay
+          : DEFAULT_SETTINGS.disableAutoplay,
+        autoCopyExample: typeof result.autoCopyExample === 'boolean'
+          ? result.autoCopyExample
+          : DEFAULT_SETTINGS.autoCopyExample
       });
     });
   });
@@ -37,6 +46,7 @@ function setSettings(nextSettings) {
 async function init() {
   const positionEl = document.getElementById('position');
   const disableAutoplayEl = document.getElementById('disableAutoplay');
+  const autoCopyExampleEl = document.getElementById('autoCopyExample');
   const saveEl = document.getElementById('save');
   const statusEl = document.getElementById('status');
 
@@ -44,14 +54,16 @@ async function init() {
     const settings = await getSettings();
     positionEl.value = settings.position;
     disableAutoplayEl.checked = settings.disableAutoplay;
+    autoCopyExampleEl.checked = settings.autoCopyExample;
   } catch (error) {
     statusEl.textContent = `Ошибка загрузки настроек: ${error.message || 'неизвестная ошибка'}`;
   }
 
   saveEl.addEventListener('click', async () => {
     const payload = {
-      position: positionEl.value,
-      disableAutoplay: disableAutoplayEl.checked
+      position: normalizePosition(positionEl.value),
+      disableAutoplay: disableAutoplayEl.checked,
+      autoCopyExample: autoCopyExampleEl.checked
     };
 
     try {
