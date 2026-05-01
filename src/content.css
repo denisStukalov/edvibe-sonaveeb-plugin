@@ -60,6 +60,29 @@
   display: none;
 }
 
+#edvibe-sonaveeb-details {
+  margin-top: 4px;
+  text-align: center;
+  font: 500 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #59627e;
+  width: min(560px, 80vw);
+}
+
+#edvibe-sonaveeb-details[data-hidden="true"] {
+  display: none;
+}
+
+.edvibe-sonaveeb-detail-line {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.edvibe-sonaveeb-detail-line + .edvibe-sonaveeb-detail-line {
+  margin-top: 2px;
+}
+
 @media (max-width: 900px) {
   #edvibe-sonaveeb-link-container {
     max-width: calc(100vw - 24px);

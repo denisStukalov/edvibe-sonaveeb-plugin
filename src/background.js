@@ -13,6 +13,17 @@ function debugError(...args) {
   console.error(...args);
 }
 
+function isVerbResult(result) {
+  return Array.isArray(result?.wordClasses)
+    && result.wordClasses.some((item) => String(item).toLowerCase() === 'verb');
+}
+
+function normalizeFormValue(value) {
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim();
+  return normalized && normalized !== '-' && normalized !== '—' ? normalized : '';
+}
+
 function pickDisplayForms(payload) {
   if (!payload || !Array.isArray(payload.searchResult) || payload.searchResult.length === 0) {
     return [];
@@ -23,10 +34,7 @@ function pickDisplayForms(payload) {
     return [];
   }
 
-  const isVerb = Array.isArray(firstResult.wordClasses)
-    && firstResult.wordClasses.some((item) => String(item).toLowerCase() === 'verb');
-
-  if (isVerb) {
+  if (isVerbResult(firstResult)) {
     const base = (typeof payload.estonianWord === 'string' && payload.estonianWord.trim())
       || (typeof payload.requestedWord === 'string' && payload.requestedWord.trim())
       || '';
@@ -63,37 +71,79 @@ function pickDisplayForms(payload) {
   const byCode = new Map();
   for (const item of firstResult.wordForms) {
     const code = typeof item?.code === 'string' ? item.code.trim() : '';
-    const value = typeof item?.value === 'string' ? item.value.trim() : '';
+    const value = normalizeFormValue(item?.value);
     if (!code || !value) continue;
     if (!byCode.has(code)) byCode.set(code, value);
   }
 
   const forms = [];
-  const pushUnique = (value) => {
+  const pushForm = (value) => {
     if (!value) return;
-    if (forms.includes(value)) return;
+    forms.push(value);
+  };
+  const pushFallback = (value) => {
+    if (!value || forms.includes(value)) return;
     forms.push(value);
   };
 
   const pluralPartitive = byCode.get('PlP');
 
   for (const code of ['SgN', 'SgG', 'SgP']) {
-    pushUnique(byCode.get(code));
+    pushForm(byCode.get(code));
   }
 
   for (const item of firstResult.wordForms) {
     if (forms.length >= (pluralPartitive ? 3 : 4)) break;
-    const value = typeof item?.value === 'string' ? item.value.trim() : '';
+    const value = normalizeFormValue(item?.value);
     if (value === pluralPartitive) continue;
-    pushUnique(value);
+    pushFallback(value);
   }
 
-  pushUnique(pluralPartitive);
+  pushForm(pluralPartitive);
 
   return forms;
 }
 
-async function fetchWordForms(word) {
+function normalizeTextValue(value) {
+  return typeof value === 'string'
+    ? value.trim().replace(/\s+/g, ' ')
+    : '';
+}
+
+function pickDisplayDetails(payload) {
+  const firstResult = Array.isArray(payload?.searchResult) ? payload.searchResult[0] : null;
+  const meanings = Array.isArray(firstResult?.meanings) ? firstResult.meanings : [];
+  const details = {
+    example: '',
+    rection: ''
+  };
+
+  if (isVerbResult(firstResult)) {
+    for (const meaning of meanings) {
+      const rection = normalizeTextValue(meaning?.rection);
+      if (rection) {
+        details.rection = rection;
+        break;
+      }
+    }
+  }
+
+  const examples = [];
+  for (const meaning of meanings) {
+    if (!Array.isArray(meaning?.examples)) continue;
+    for (const item of meaning.examples) {
+      const example = normalizeTextValue(item);
+      if (example && !examples.includes(example)) {
+        examples.push(example);
+      }
+    }
+  }
+
+  details.example = examples.find((example) => example.length <= 110) || examples[0] || '';
+  return details;
+}
+
+async function fetchWordDetails(word) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -112,7 +162,7 @@ async function fetchWordForms(word) {
     });
 
     if (response.status === 404) {
-      return [];
+      return { forms: [], example: '', rection: '' };
     }
 
     if (!response.ok) {
@@ -121,13 +171,20 @@ async function fetchWordForms(word) {
 
     const contentType = response.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
-      return [];
+      return { forms: [], example: '', rection: '' };
     }
 
     const payload = await response.json();
     const forms = pickDisplayForms(payload);
-    debugLog(`${BG_LOG_PREFIX} parsed forms`, { word, formsCount: forms.length, forms });
-    return forms;
+    const details = forms.length > 0 ? pickDisplayDetails(payload) : { example: '', rection: '' };
+    debugLog(`${BG_LOG_PREFIX} parsed details`, {
+      word,
+      formsCount: forms.length,
+      forms,
+      hasExample: Boolean(details.example),
+      hasRection: Boolean(details.rection)
+    });
+    return { forms, ...details };
   } catch (error) {
     debugError(`${BG_LOG_PREFIX} fetch error`, {
       word,
@@ -146,12 +203,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const word = typeof message.word === 'string' ? message.word.trim() : '';
   debugLog(`${BG_LOG_PREFIX} message`, { word, senderOrigin: sender.origin || null });
   if (!word) {
-    sendResponse({ ok: true, forms: [] });
+    sendResponse({ ok: true, forms: [], example: '', rection: '' });
     return;
   }
 
-  fetchWordForms(word)
-    .then((forms) => sendResponse({ ok: true, forms }))
+  fetchWordDetails(word)
+    .then((details) => sendResponse({ ok: true, ...details }))
     .catch((error) => sendResponse({ ok: false, error: error.message || 'Unknown Sonapi error' }));
 
   return true;

@@ -3,6 +3,7 @@
   const LINK_ID = 'edvibe-sonaveeb-link';
   const CONTAINER_ID = 'edvibe-sonaveeb-link-container';
   const FORMS_ID = 'edvibe-sonaveeb-forms';
+  const DETAILS_ID = 'edvibe-sonaveeb-details';
 
   const TRAINING_BLOCK_SELECTORS = [
     '.form-training-view-word',
@@ -36,19 +37,21 @@
     '.swal2-container',
     '.cdk-overlay-container'
   ];
-  const formsCache = new Map();
-  const formsInFlight = new Set();
-  const formsFailedAt = new Map();
+  const wordDetailsCache = new Map();
+  const wordDetailsInFlight = new Set();
+  const wordDetailsFailedAt = new Map();
   const FAILED_RETRY_MS = 60000;
   const INTERRUPT_SUPPRESS_MS = 2500;
   const CARD_TRANSITION_SUPPRESS_MS = 15;
-  let formsRequestSeq = 0;
+  let wordDetailsRequestSeq = 0;
   let rafScheduled = false;
   let lastDictionaryWord = '';
-  let activeFormsWord = '';
+  let activeDetailsWord = '';
   let lastPathname = window.location.pathname;
   let suppressUntilTs = 0;
   let currentSettings = { ...DEFAULT_SETTINGS };
+  let extensionContextInvalidated = false;
+  let activePollIntervalId = null;
 
   function normalizeWord(text) {
     if (!text) return '';
@@ -67,6 +70,32 @@
   function debugError(...args) {
     if (!DEBUG) return;
     console.error(...args);
+  }
+
+  function isExtensionContextError(error) {
+    const message = error?.message || String(error || '');
+    return message.includes('Extension context invalidated')
+      || message.includes('Extension context was invalidated');
+  }
+
+  function markExtensionContextInvalidated(error) {
+    if (!isExtensionContextError(error)) return false;
+    extensionContextInvalidated = true;
+    if (activePollIntervalId !== null) {
+      window.clearInterval(activePollIntervalId);
+      activePollIntervalId = null;
+    }
+    debugError(`${CONTENT_LOG_PREFIX} extension context invalidated`, error);
+    return true;
+  }
+
+  function getRuntimeLastError() {
+    try {
+      return chrome.runtime.lastError || null;
+    } catch (error) {
+      if (markExtensionContextInvalidated(error)) return error;
+      throw error;
+    }
   }
 
   function isReasonableWord(word) {
@@ -181,18 +210,28 @@
 
   function getSettingsFromStorage() {
     return new Promise((resolve) => {
-      chrome.storage.sync.get(DEFAULT_SETTINGS, (result) => {
-        if (chrome.runtime.lastError) {
+      try {
+        chrome.storage.sync.get(DEFAULT_SETTINGS, (result) => {
+          const runtimeError = getRuntimeLastError();
+          if (runtimeError) {
+            markExtensionContextInvalidated(runtimeError);
+            resolve({ ...DEFAULT_SETTINGS });
+            return;
+          }
+          resolve({
+            position: result.position || DEFAULT_SETTINGS.position,
+            disableAutoplay: typeof result.disableAutoplay === 'boolean'
+              ? result.disableAutoplay
+              : DEFAULT_SETTINGS.disableAutoplay
+          });
+        });
+      } catch (error) {
+        if (markExtensionContextInvalidated(error)) {
           resolve({ ...DEFAULT_SETTINGS });
           return;
         }
-        resolve({
-          position: result.position || DEFAULT_SETTINGS.position,
-          disableAutoplay: typeof result.disableAutoplay === 'boolean'
-            ? result.disableAutoplay
-            : DEFAULT_SETTINGS.disableAutoplay
-        });
-      });
+        throw error;
+      }
     });
   }
 
@@ -224,9 +263,14 @@
     forms.id = FORMS_ID;
     forms.dataset.hidden = 'true';
 
+    const details = document.createElement('div');
+    details.id = DETAILS_ID;
+    details.dataset.hidden = 'true';
+
     linkContainer.appendChild(link);
     linkContainer.appendChild(forms);
-    return { linkContainer, link, forms };
+    linkContainer.appendChild(details);
+    return { linkContainer, link, forms, details };
   }
 
   function installWordAudioAutoplayBlocker() {
@@ -234,7 +278,12 @@
 
     const script = document.createElement('script');
     script.id = AUDIO_BLOCKER_SCRIPT_ID;
-    script.src = chrome.runtime.getURL('src/injected-audio-blocker.js');
+    try {
+      script.src = chrome.runtime.getURL('src/injected-audio-blocker.js');
+    } catch (error) {
+      if (markExtensionContextInvalidated(error)) return;
+      throw error;
+    }
     script.async = false;
     (document.head || document.documentElement).appendChild(script);
   }
@@ -258,6 +307,38 @@
   function setFormsLoading(formsEl) {
     formsEl.dataset.hidden = 'false';
     formsEl.textContent = 'Vormid: …';
+  }
+
+  function setDetailsUI(detailsEl, details) {
+    const rection = typeof details?.rection === 'string' ? details.rection.trim() : '';
+    const example = typeof details?.example === 'string' ? details.example.trim() : '';
+    detailsEl.textContent = '';
+
+    if (!rection && !example) {
+      detailsEl.dataset.hidden = 'true';
+      return;
+    }
+
+    detailsEl.dataset.hidden = 'false';
+
+    if (rection) {
+      const rectionEl = document.createElement('div');
+      rectionEl.className = 'edvibe-sonaveeb-detail-line';
+      rectionEl.textContent = `Rektsioon: ${rection}`;
+      detailsEl.appendChild(rectionEl);
+    }
+
+    if (example) {
+      const exampleEl = document.createElement('div');
+      exampleEl.className = 'edvibe-sonaveeb-detail-line';
+      exampleEl.textContent = `Näide: ${example}`;
+      detailsEl.appendChild(exampleEl);
+    }
+  }
+
+  function hideDetails(detailsEl) {
+    detailsEl.dataset.hidden = 'true';
+    detailsEl.textContent = '';
   }
 
   function hideLink(linkContainer) {
@@ -293,85 +374,125 @@
     return label.includes('дальше') || label.includes('назад');
   }
 
-  function requestWordForms(word, formsEl) {
-    activeFormsWord = word;
-
-    if (!word) {
+  function requestWordDetails(word, formsEl, detailsEl) {
+    if (extensionContextInvalidated) {
       setFormsUI(formsEl, []);
+      hideDetails(detailsEl);
       return;
     }
 
-    if (formsCache.has(word)) {
-      const cachedForms = formsCache.get(word);
-      if (Array.isArray(cachedForms) && cachedForms.length > 0) {
-        setFormsUI(formsEl, cachedForms);
+    activeDetailsWord = word;
+
+    if (!word) {
+      setFormsUI(formsEl, []);
+      hideDetails(detailsEl);
+      return;
+    }
+
+    if (wordDetailsCache.has(word)) {
+      const cachedDetails = wordDetailsCache.get(word);
+      if (cachedDetails && Array.isArray(cachedDetails.forms) && cachedDetails.forms.length > 0) {
+        setFormsUI(formsEl, cachedDetails.forms);
+        setDetailsUI(detailsEl, cachedDetails);
       } else {
         setFormsFallback(formsEl);
+        hideDetails(detailsEl);
       }
       return;
     }
 
-    const failedAt = formsFailedAt.get(word);
+    const failedAt = wordDetailsFailedAt.get(word);
     if (typeof failedAt === 'number' && Date.now() - failedAt < FAILED_RETRY_MS) {
       setFormsFallback(formsEl);
+      hideDetails(detailsEl);
       return;
     }
 
-    if (formsInFlight.has(word)) {
+    if (wordDetailsInFlight.has(word)) {
       setFormsLoading(formsEl);
+      hideDetails(detailsEl);
       return;
     }
 
-    const requestId = ++formsRequestSeq;
-    formsInFlight.add(word);
+    const requestId = ++wordDetailsRequestSeq;
+    wordDetailsInFlight.add(word);
     setFormsLoading(formsEl);
+    hideDetails(detailsEl);
     debugLog(`${CONTENT_LOG_PREFIX} forms request start`, { word, requestId });
     let resolved = false;
     const timeoutId = window.setTimeout(() => {
       if (resolved) return;
       resolved = true;
-      formsInFlight.delete(word);
-      if (requestId !== formsRequestSeq || word !== activeFormsWord) return;
-      formsFailedAt.set(word, Date.now());
+      wordDetailsInFlight.delete(word);
+      if (requestId !== wordDetailsRequestSeq || word !== activeDetailsWord) return;
+      wordDetailsFailedAt.set(word, Date.now());
       setFormsFallback(formsEl);
+      hideDetails(detailsEl);
     }, 1300);
 
-    chrome.runtime.sendMessage({ type: 'getWordForms', word }, (response) => {
+    const handleResponse = (response) => {
       if (resolved) return;
       resolved = true;
       window.clearTimeout(timeoutId);
-      formsInFlight.delete(word);
-      if (requestId !== formsRequestSeq || word !== activeFormsWord) return;
-      if (chrome.runtime.lastError) {
-        formsFailedAt.set(word, Date.now());
+      wordDetailsInFlight.delete(word);
+      if (requestId !== wordDetailsRequestSeq || word !== activeDetailsWord) return;
+      const runtimeError = getRuntimeLastError();
+      if (runtimeError) {
+        markExtensionContextInvalidated(runtimeError);
+        wordDetailsFailedAt.set(word, Date.now());
         debugError(`${CONTENT_LOG_PREFIX} runtime error`, {
           word,
           requestId,
-          error: chrome.runtime.lastError.message
+          error: runtimeError.message
         });
         setFormsFallback(formsEl, true);
+        hideDetails(detailsEl);
         return;
       }
       debugLog(`${CONTENT_LOG_PREFIX} forms response`, { word, requestId, response });
       if (!response || !response.ok || !Array.isArray(response.forms)) {
-        formsFailedAt.set(word, Date.now());
+        wordDetailsFailedAt.set(word, Date.now());
         setFormsFallback(formsEl);
+        hideDetails(detailsEl);
         return;
       }
 
       const forms = response.forms.slice(0, 4);
-      formsFailedAt.delete(word);
+      const details = {
+        forms,
+        example: typeof response.example === 'string' ? response.example : '',
+        rection: typeof response.rection === 'string' ? response.rection : ''
+      };
+      wordDetailsFailedAt.delete(word);
       if (forms.length === 0) {
-        formsCache.set(word, null);
+        wordDetailsCache.set(word, null);
         setFormsFallback(formsEl);
+        hideDetails(detailsEl);
       } else {
-        formsCache.set(word, forms);
+        wordDetailsCache.set(word, details);
         setFormsUI(formsEl, forms);
+        setDetailsUI(detailsEl, details);
       }
-    });
+    };
+
+    try {
+      chrome.runtime.sendMessage({ type: 'getWordForms', word }, handleResponse);
+    } catch (error) {
+      if (!markExtensionContextInvalidated(error)) throw error;
+      resolved = true;
+      window.clearTimeout(timeoutId);
+      wordDetailsInFlight.delete(word);
+      setFormsUI(formsEl, []);
+      hideDetails(detailsEl);
+    }
   }
 
-  function updateLink({ linkContainer, link, forms }) {
+  function updateLink({ linkContainer, link, forms, details }) {
+    if (extensionContextInvalidated) {
+      hideLink(linkContainer);
+      return;
+    }
+
     ensureLinkMounted(linkContainer);
 
     if (Date.now() < suppressUntilTs) {
@@ -401,13 +522,14 @@
 
     link.textContent = `Открыть в Sõnaveeb: ${lastDictionaryWord}`;
     link.href = `${DICT_URL}${encodeURIComponent(lastDictionaryWord)}/1/est`;
-    requestWordForms(lastDictionaryWord, forms);
+    requestWordDetails(lastDictionaryWord, forms, details);
     linkContainer.dataset.hidden = 'false';
     positionLink(linkContainer);
   }
 
   function init() {
     installWordAudioAutoplayBlocker();
+    if (extensionContextInvalidated) return;
 
     const refs = buildLink();
     applySettings(currentSettings, refs.linkContainer);
@@ -443,19 +565,25 @@
     document.addEventListener('keydown', update, true);
     window.addEventListener('pagehide', () => hideLink(refs.linkContainer));
     window.addEventListener('beforeunload', () => hideLink(refs.linkContainer));
-    window.setInterval(update, ACTIVE_POLL_MS);
+    activePollIntervalId = window.setInterval(update, ACTIVE_POLL_MS);
 
-    chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== 'sync') return;
-      if (!changes.position && !changes.disableAutoplay) return;
-      applySettings({
-        position: changes.position ? changes.position.newValue : currentSettings.position,
-        disableAutoplay: changes.disableAutoplay
-          ? changes.disableAutoplay.newValue
-          : currentSettings.disableAutoplay
-      }, refs.linkContainer);
-      update();
-    });
+    try {
+      chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName !== 'sync') return;
+        if (!changes.position && !changes.disableAutoplay) return;
+        applySettings({
+          position: changes.position ? changes.position.newValue : currentSettings.position,
+          disableAutoplay: changes.disableAutoplay
+            ? changes.disableAutoplay.newValue
+            : currentSettings.disableAutoplay
+        }, refs.linkContainer);
+        update();
+      });
+    } catch (error) {
+      if (!markExtensionContextInvalidated(error)) throw error;
+      hideLink(refs.linkContainer);
+      return;
+    }
 
     getSettingsFromStorage().then((settings) => {
       applySettings(settings, refs.linkContainer);
