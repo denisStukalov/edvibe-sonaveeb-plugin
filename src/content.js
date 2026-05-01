@@ -45,6 +45,7 @@
   let formsRequestSeq = 0;
   let rafScheduled = false;
   let lastDictionaryWord = '';
+  let activeFormsWord = '';
   let lastPathname = window.location.pathname;
   let suppressUntilTs = 0;
   let currentSettings = { ...DEFAULT_SETTINGS };
@@ -293,6 +294,8 @@
   }
 
   function requestWordForms(word, formsEl) {
+    activeFormsWord = word;
+
     if (!word) {
       setFormsUI(formsEl, []);
       return;
@@ -315,6 +318,7 @@
     }
 
     if (formsInFlight.has(word)) {
+      setFormsLoading(formsEl);
       return;
     }
 
@@ -324,9 +328,10 @@
     debugLog(`${CONTENT_LOG_PREFIX} forms request start`, { word, requestId });
     let resolved = false;
     const timeoutId = window.setTimeout(() => {
-      if (resolved || requestId !== formsRequestSeq) return;
+      if (resolved) return;
       resolved = true;
       formsInFlight.delete(word);
+      if (requestId !== formsRequestSeq || word !== activeFormsWord) return;
       formsFailedAt.set(word, Date.now());
       setFormsFallback(formsEl);
     }, 1300);
@@ -336,7 +341,7 @@
       resolved = true;
       window.clearTimeout(timeoutId);
       formsInFlight.delete(word);
-      if (requestId !== formsRequestSeq) return;
+      if (requestId !== formsRequestSeq || word !== activeFormsWord) return;
       if (chrome.runtime.lastError) {
         formsFailedAt.set(word, Date.now());
         debugError(`${CONTENT_LOG_PREFIX} runtime error`, {

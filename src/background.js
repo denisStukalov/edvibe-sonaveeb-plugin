@@ -75,15 +75,20 @@ function pickDisplayForms(payload) {
     forms.push(value);
   };
 
-  for (const code of ['SgN', 'SgG', 'SgP', 'PlP']) {
+  const pluralPartitive = byCode.get('PlP');
+
+  for (const code of ['SgN', 'SgG', 'SgP']) {
     pushUnique(byCode.get(code));
   }
 
   for (const item of firstResult.wordForms) {
-    if (forms.length >= 4) break;
+    if (forms.length >= (pluralPartitive ? 3 : 4)) break;
     const value = typeof item?.value === 'string' ? item.value.trim() : '';
+    if (value === pluralPartitive) continue;
     pushUnique(value);
   }
+
+  pushUnique(pluralPartitive);
 
   return forms;
 }
