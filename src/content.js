@@ -583,9 +583,6 @@
     const detectedWord = findCurrentWord();
     if (isDictionarySourceWord(detectedWord)) {
       lastDictionaryWord = detectedWord;
-    } else {
-      lastDictionaryWord = '';
-      activeDetailsWord = '';
     }
 
     if (!lastDictionaryWord || !isTrainingVisible()) {
