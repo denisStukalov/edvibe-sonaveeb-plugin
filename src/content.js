@@ -55,6 +55,8 @@
   let extensionContextInvalidated = false;
   let activePollIntervalId = null;
   let lastAutoCopiedExampleKey = '';
+  let displayedExampleWord = '';
+  let displayedExample = '';
 
   function normalizeWord(text) {
     if (!text) return '';
@@ -351,9 +353,30 @@
     });
   }
 
+  function pickRandomItem(items) {
+    if (!Array.isArray(items) || items.length === 0) return '';
+    return items[Math.floor(Math.random() * items.length)] || '';
+  }
+
+  function getDisplayExample(details, word) {
+    const examples = Array.isArray(details?.examples)
+      ? details.examples.filter((item) => typeof item === 'string' && item.trim())
+      : [];
+    const fallback = typeof details?.example === 'string' ? details.example.trim() : '';
+
+    if (word && word === displayedExampleWord) {
+      if (examples.length === 0 && displayedExample === fallback) return displayedExample;
+      if (examples.includes(displayedExample)) return displayedExample;
+    }
+
+    displayedExampleWord = word;
+    displayedExample = pickRandomItem(examples) || fallback;
+    return displayedExample;
+  }
+
   function setDetailsUI(detailsEl, details, word = '') {
     const rection = typeof details?.rection === 'string' ? details.rection.trim() : '';
-    const example = typeof details?.example === 'string' ? details.example.trim() : '';
+    const example = getDisplayExample(details, word);
     detailsEl.textContent = '';
 
     if (!rection && !example) {
@@ -507,6 +530,7 @@
       const details = {
         forms,
         example: typeof response.example === 'string' ? response.example : '',
+        examples: Array.isArray(response.examples) ? response.examples : [],
         rection: typeof response.rection === 'string' ? response.rection : ''
       };
       wordDetailsFailedAt.delete(word);
@@ -559,10 +583,15 @@
     const detectedWord = findCurrentWord();
     if (isDictionarySourceWord(detectedWord)) {
       lastDictionaryWord = detectedWord;
+    } else {
+      lastDictionaryWord = '';
+      activeDetailsWord = '';
     }
 
     if (!lastDictionaryWord || !isTrainingVisible()) {
       hideLink(linkContainer);
+      setFormsUI(forms, []);
+      hideDetails(details);
       return;
     }
 

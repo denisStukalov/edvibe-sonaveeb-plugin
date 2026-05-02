@@ -110,11 +110,17 @@ function normalizeTextValue(value) {
     : '';
 }
 
+function pickRandomItem(items) {
+  if (!Array.isArray(items) || items.length === 0) return '';
+  return items[Math.floor(Math.random() * items.length)] || '';
+}
+
 function pickDisplayDetails(payload) {
   const firstResult = Array.isArray(payload?.searchResult) ? payload.searchResult[0] : null;
   const meanings = Array.isArray(firstResult?.meanings) ? firstResult.meanings : [];
   const details = {
     example: '',
+    examples: [],
     rection: ''
   };
 
@@ -139,7 +145,9 @@ function pickDisplayDetails(payload) {
     }
   }
 
-  details.example = examples.find((example) => example.length <= 110) || examples[0] || '';
+  const shortExamples = examples.filter((example) => example.length <= 110);
+  details.examples = shortExamples.length > 0 ? shortExamples : examples;
+  details.example = pickRandomItem(details.examples);
   return details;
 }
 
@@ -162,7 +170,7 @@ async function fetchWordDetails(word) {
     });
 
     if (response.status === 404) {
-      return { forms: [], example: '', rection: '' };
+      return { forms: [], example: '', examples: [], rection: '' };
     }
 
     if (!response.ok) {
@@ -171,12 +179,12 @@ async function fetchWordDetails(word) {
 
     const contentType = response.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
-      return { forms: [], example: '', rection: '' };
+      return { forms: [], example: '', examples: [], rection: '' };
     }
 
     const payload = await response.json();
     const forms = pickDisplayForms(payload);
-    const details = forms.length > 0 ? pickDisplayDetails(payload) : { example: '', rection: '' };
+    const details = forms.length > 0 ? pickDisplayDetails(payload) : { example: '', examples: [], rection: '' };
     debugLog(`${BG_LOG_PREFIX} parsed details`, {
       word,
       formsCount: forms.length,
@@ -203,7 +211,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const word = typeof message.word === 'string' ? message.word.trim() : '';
   debugLog(`${BG_LOG_PREFIX} message`, { word, senderOrigin: sender.origin || null });
   if (!word) {
-    sendResponse({ ok: true, forms: [], example: '', rection: '' });
+    sendResponse({ ok: true, forms: [], example: '', examples: [], rection: '' });
     return;
   }
 
